@@ -11,17 +11,33 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/Godofdeath-dev/avitoLabs/internal/config"
 	api "github.com/Godofdeath-dev/avitoLabs/internal/generated"
+	"github.com/Godofdeath-dev/avitoLabs/internal/repository"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+// хелпер для ошибок
+func writeProblem(w http.ResponseWriter, status int, code, title, detail string) {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(api.Problem{
+		Status: int32(status),
+		Code:   code,
+		Title:  title,
+		Detail: &detail,
+	})
+}
+
 // Server хранит общие зависимости приложения (пул БД, сервисы)
 // и реализует интерфейс api.ServerInterface.
 type Server struct {
 	pool *pgxpool.Pool
+	repo *repository.TripRepository
 }
 
 // CreateTripPosition implements [api.ServerInterface].
@@ -65,22 +81,87 @@ func (s *Server) Ready(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(api.HealthResponse{Status: api.Ok})
 }
 
-// CreateTrip обрабатывает запрос POST /api/v1/trips (Создание поездки).
-// Заглушка (пока что)
+// POST /api/v1/trips
 func (s *Server) CreateTrip(w http.ResponseWriter, r *http.Request, params api.CreateTripParams) {
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	var body api.CreateTripJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeProblem(w, http.StatusBadRequest, "bad_request", "Invalid JSON", err.Error())
+		return
+	}
+
+	// Валидация входных данных
+	if body.Price <= 0 {
+		writeProblem(w, http.StatusBadRequest, "bad_request", "Invalid price", "Price must be greater than zero")
+		return
+	}
+	if body.StartPoint.Latitude < -90 || body.StartPoint.Latitude > 90 ||
+		body.StartPoint.Longitude < -180 || body.StartPoint.Longitude > 180 ||
+		body.EndPoint.Latitude < -90 || body.EndPoint.Latitude > 90 ||
+		body.EndPoint.Longitude < -180 || body.EndPoint.Longitude > 180 {
+		writeProblem(w, http.StatusBadRequest, "bad_request", "Invalid coordinates", "Coordinates are out of range")
+		return
+	}
+
+	newTrip := api.Trip{
+		Id:         uuid.New(),
+		UserId:     body.UserId,
+		DriverId:   body.DriverId,
+		Price:      body.Price,
+		Status:     api.Active,
+		StartPoint: body.StartPoint,
+		EndPoint:   body.EndPoint,
+		StartedAt:  time.Now().UTC(),
+	}
+
+	created, err := s.repo.CreateTrip(r.Context(), newTrip)
+	if err != nil {
+		slog.Error("failed to create trip", "error", err)
+		writeProblem(w, http.StatusInternalServerError, "internal_error", "Internal Error", "Failed to save trip")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(created)
 }
 
-// GetTrip обрабатывает запрос GET /api/v1/trips/{tripId} (Получение поездки).
-// Заглушка (пока что)
+// GET /api/v1/trips/{tripId}
 func (s *Server) GetTrip(w http.ResponseWriter, r *http.Request, tripId api.TripId) {
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	trip, err := s.repo.GetTripByID(r.Context(), tripId)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			writeProblem(w, http.StatusNotFound, "trip_not_found", "Not Found", "Trip not found")
+			return
+		}
+		slog.Error("failed to get trip", "error", err)
+		writeProblem(w, http.StatusInternalServerError, "internal_error", "Internal Error", "Failed to get trip")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(trip)
 }
 
-// FinishTrip обрабатывает запрос POST /api/v1/trips/{tripId}/finish (Завершение поездки).
-// Заглушка (пока что)
 func (s *Server) FinishTrip(w http.ResponseWriter, r *http.Request, tripId api.TripId) {
-	http.Error(w, "not implemented", http.StatusNotImplemented)
+	trip, err := s.repo.FinishTrip(r.Context(), tripId, time.Now().UTC())
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			writeProblem(w, http.StatusNotFound, "trip_not_found", "Not Found", "Trip not found")
+			return
+		}
+		if errors.Is(err, repository.ErrAlreadyFinished) {
+			writeProblem(w, http.StatusConflict, "trip_already_completed", "Conflict", "Trip is already completed")
+			return
+		}
+		slog.Error("failed to finish trip", "error", err)
+		writeProblem(w, http.StatusInternalServerError, "internal_error", "Internal Error", "Failed to finish trip")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(trip)
 }
 
 func main() {
@@ -98,7 +179,7 @@ func main() {
 	}))
 	slog.SetDefault(logger)
 
-	// 2. Инициализируем пул соединений с PostgreSQL (pgxpool)
+	// 2. Инициализируем пул соединений с PostgreSQL
 	ctx := context.Background()
 	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL) // парсим конфиг
 	if err != nil {
@@ -112,10 +193,18 @@ func main() {
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg) // подключаем бдшку
 	if err != nil {
-		slog.Error("failed to create database pool", "error", err)
+		slog.Error("failed to create database pool:", "error", err)
 		os.Exit(1)
 	}
 	defer pool.Close()
+
+	poolCtx, cancel := context.WithTimeout(context.Background(), cfg.DatabaseConnectTimeout)
+	defer cancel()
+	if err := pool.Ping(poolCtx); err != nil {
+		slog.Error("failed to ping database:", "error", err)
+		os.Exit(1)
+	}
+	slog.Info("connected to postgres successfully")
 
 	// 3. Создаем роутер
 	r := chi.NewRouter()
@@ -123,14 +212,18 @@ func main() {
 	r.Use(middleware.RequestID)
 	// Перехватывает паники, отдаём 500
 	r.Use(middleware.Recoverer)
+	// репозиторий для сервера
+	repo := repository.NewTripRepository(pool)
 
-	// экземпляр сервера с подключенным бд
-	serverImpl := &Server{pool: pool}
+	serverImpl := &Server{
+		pool: pool,
+		repo: repo,
+	}
 
 	// Регистрируем маршруты OpenAPI в роутере chi
 	api.HandlerFromMux(serverImpl, r)
 
-	// http сервер
+	// 4. запускаем сервер http сервер
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           r,
