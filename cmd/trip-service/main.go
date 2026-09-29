@@ -36,8 +36,9 @@ func writeProblem(w http.ResponseWriter, status int, code, title, detail string)
 // Server хранит общие зависимости приложения (пул БД, сервисы)
 // и реализует интерфейс api.ServerInterface.
 type Server struct {
-	pool *pgxpool.Pool
-	repo *repository.TripRepository
+	pool      *pgxpool.Pool
+	repo      *repository.TripRepository
+	txManager repository.TxManager
 }
 
 // CreateTripPosition implements [api.ServerInterface].
@@ -89,7 +90,6 @@ func (s *Server) CreateTrip(w http.ResponseWriter, r *http.Request, params api.C
 		return
 	}
 
-	// Валидация входных данных
 	if body.Price <= 0 {
 		writeProblem(w, http.StatusBadRequest, "bad_request", "Invalid price", "Price must be greater than zero")
 		return
@@ -113,7 +113,13 @@ func (s *Server) CreateTrip(w http.ResponseWriter, r *http.Request, params api.C
 		StartedAt:  time.Now().UTC(),
 	}
 
-	created, err := s.repo.CreateTrip(r.Context(), newTrip)
+	// Выполняем вставку в trips и в trip_status_history атомарно через TxManager
+	err := s.txManager.Do(r.Context(), func(ctx context.Context) error {
+		if err := s.repo.InsertTrip(ctx, newTrip); err != nil {
+			return err
+		}
+		return s.repo.AddStatusHistory(ctx, newTrip.Id, nil, newTrip.Status, newTrip.StartedAt)
+	})
 	if err != nil {
 		slog.Error("failed to create trip", "error", err)
 		writeProblem(w, http.StatusInternalServerError, "internal_error", "Internal Error", "Failed to save trip")
@@ -122,7 +128,7 @@ func (s *Server) CreateTrip(w http.ResponseWriter, r *http.Request, params api.C
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	_ = json.NewEncoder(w).Encode(created)
+	_ = json.NewEncoder(w).Encode(newTrip)
 }
 
 // GET /api/v1/trips/{tripId}
@@ -143,8 +149,20 @@ func (s *Server) GetTrip(w http.ResponseWriter, r *http.Request, tripId api.Trip
 	_ = json.NewEncoder(w).Encode(trip)
 }
 
+// POST /api/v1/trips/{tripId}/finish
 func (s *Server) FinishTrip(w http.ResponseWriter, r *http.Request, tripId api.TripId) {
-	trip, err := s.repo.FinishTrip(r.Context(), tripId, time.Now().UTC())
+	now := time.Now().UTC()
+	var trip *api.Trip
+
+	err := s.txManager.Do(r.Context(), func(ctx context.Context) error {
+		var err error
+		trip, err = s.repo.UpdateTripCompleted(ctx, tripId, now)
+		if err != nil {
+			return err
+		}
+		fromStatus := string(api.Active)
+		return s.repo.AddStatusHistory(ctx, tripId, &fromStatus, api.Completed, now)
+	})
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			writeProblem(w, http.StatusNotFound, "trip_not_found", "Not Found", "Trip not found")
@@ -163,7 +181,6 @@ func (s *Server) FinishTrip(w http.ResponseWriter, r *http.Request, tripId api.T
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(trip)
 }
-
 func main() {
 	// 1. Читаем конфигурацию из переменных окружения
 	cfg, err := config.Load()
@@ -214,10 +231,12 @@ func main() {
 	r.Use(middleware.Recoverer)
 	// репозиторий для сервера
 	repo := repository.NewTripRepository(pool)
+	txManager := repository.NewTxManager(pool)
 
 	serverImpl := &Server{
-		pool: pool,
-		repo: repo,
+		pool:      pool,
+		repo:      repo,
+		txManager: txManager,
 	}
 
 	// Регистрируем маршруты OpenAPI в роутере chi

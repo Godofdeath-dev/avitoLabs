@@ -24,21 +24,18 @@ func NewTripRepository(pool *pgxpool.Pool) *TripRepository {
 	return &TripRepository{pool: pool}
 }
 
-func (r *TripRepository) CreateTrip(ctx context.Context, trip api.Trip) (*api.Trip, error) {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(ctx)
+// InsertTrip выполняет вставку только в таблицу trips
+func (r *TripRepository) InsertTrip(ctx context.Context, trip api.Trip) error {
+	executor := getExecutor(ctx, r.pool)
 
-	queryTrip := `
+	query := `
 		INSERT INTO trips (
 			id, user_id, driver_id, price, status,
 			start_latitude, start_longitude, end_latitude, end_longitude,
 			started_at
 		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 	`
-	_, err = tx.Exec(ctx, queryTrip,
+	_, err := executor.Exec(ctx, query,
 		trip.Id,
 		trip.UserId,
 		trip.DriverId,
@@ -50,27 +47,25 @@ func (r *TripRepository) CreateTrip(ctx context.Context, trip api.Trip) (*api.Tr
 		trip.EndPoint.Longitude,
 		trip.StartedAt,
 	)
-	if err != nil {
-		return nil, err
-	}
-
-	queryHistory := `
-		INSERT INTO trip_status_history (trip_id, from_status, to_status, changed_at)
-		VALUES ($1, NULL, $2, $3)
-	`
-	_, err = tx.Exec(ctx, queryHistory, trip.Id, string(trip.Status), trip.StartedAt)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
-	}
-
-	return &trip, nil
+	return err
 }
 
+// AddStatusHistory выполняет запись в таблицу trip_status_history
+func (r *TripRepository) AddStatusHistory(ctx context.Context, tripID api.TripId, fromStatus *string, toStatus api.TripStatus, changedAt time.Time) error {
+	executor := getExecutor(ctx, r.pool)
+
+	query := `
+		INSERT INTO trip_status_history (trip_id, from_status, to_status, changed_at)
+		VALUES ($1, $2, $3, $4)
+	`
+	_, err := executor.Exec(ctx, query, tripID, fromStatus, string(toStatus), changedAt)
+	return err
+}
+
+// GetTripByID читает поездку (в транзакции или через пул в зависимости от контекста)
 func (r *TripRepository) GetTripByID(ctx context.Context, id api.TripId) (*api.Trip, error) {
+	executor := getExecutor(ctx, r.pool)
+
 	query := `
 		SELECT 
 			id, user_id, driver_id, price, status,
@@ -81,7 +76,7 @@ func (r *TripRepository) GetTripByID(ctx context.Context, id api.TripId) (*api.T
 	`
 
 	var trip api.Trip
-	err := r.pool.QueryRow(ctx, query, id).Scan(
+	err := executor.QueryRow(ctx, query, id).Scan(
 		&trip.Id,
 		&trip.UserId,
 		&trip.DriverId,
@@ -104,16 +99,13 @@ func (r *TripRepository) GetTripByID(ctx context.Context, id api.TripId) (*api.T
 	return &trip, nil
 }
 
-func (r *TripRepository) FinishTrip(ctx context.Context, id api.TripId, finishedAt time.Time) (*api.Trip, error) {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback(ctx)
+// UpdateTripCompleted переводит поездку в статус completed с блокировкой строки
+func (r *TripRepository) UpdateTripCompleted(ctx context.Context, id api.TripId, finishedAt time.Time) (*api.Trip, error) {
+	executor := getExecutor(ctx, r.pool)
 
 	var currentStatus string
 	queryCheck := `SELECT status FROM trips WHERE id = $1 FOR UPDATE`
-	err = tx.QueryRow(ctx, queryCheck, id).Scan(&currentStatus)
+	err := executor.QueryRow(ctx, queryCheck, id).Scan(&currentStatus)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrNotFound
@@ -136,7 +128,7 @@ func (r *TripRepository) FinishTrip(ctx context.Context, id api.TripId, finished
 	`
 
 	var trip api.Trip
-	err = tx.QueryRow(ctx, queryUpdate, id, string(api.Completed), finishedAt).Scan(
+	err = executor.QueryRow(ctx, queryUpdate, id, string(api.Completed), finishedAt).Scan(
 		&trip.Id,
 		&trip.UserId,
 		&trip.DriverId,
@@ -150,19 +142,6 @@ func (r *TripRepository) FinishTrip(ctx context.Context, id api.TripId, finished
 		&trip.FinishedAt,
 	)
 	if err != nil {
-		return nil, err
-	}
-
-	queryHistory := `
-		INSERT INTO trip_status_history (trip_id, from_status, to_status, changed_at)
-		VALUES ($1, $2, $3, $4)
-	`
-	_, err = tx.Exec(ctx, queryHistory, id, currentStatus, string(api.Completed), finishedAt)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 
