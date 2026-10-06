@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	ErrNotFound        = errors.New("trip not found")
+	ErrNotFound        = errors.New("trip not found") // todo попозже заменю на сгенерированные в api.gen
 	ErrAlreadyFinished = errors.New("trip already completed")
 )
 
@@ -40,7 +40,7 @@ func (r *TripRepository) InsertTrip(ctx context.Context, trip api.Trip) error {
 		trip.UserId,
 		trip.DriverId,
 		trip.Price,
-		string(trip.Status),
+		trip.Status,
 		trip.StartPoint.Latitude,
 		trip.StartPoint.Longitude,
 		trip.EndPoint.Latitude,

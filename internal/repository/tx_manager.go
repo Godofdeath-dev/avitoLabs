@@ -11,7 +11,7 @@ import (
 
 type txKey struct{}
 
-// QueryExecutor — общий интерфейс выполнения SQL-запросов (реализуется и pgxpool.Pool, и pgx.Tx)
+
 type QueryExecutor interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)

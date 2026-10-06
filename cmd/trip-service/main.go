@@ -227,7 +227,7 @@ func main() {
 	r := chi.NewRouter()
 	// добавляет индификаторы
 	r.Use(middleware.RequestID)
-	// Перехватывает паники, отдаём 500
+	// Перехватывает паники
 	r.Use(middleware.Recoverer)
 	// репозиторий для сервера
 	repo := repository.NewTripRepository(pool)
