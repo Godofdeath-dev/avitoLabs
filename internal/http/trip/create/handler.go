@@ -33,10 +33,10 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 
 	res, err := h.uc.Execute(r.Context(), toInput(body))
 	if err != nil {
-		status, prob := domainerror.Problem(err)
-		if status >= http.StatusInternalServerError && h.logger != nil {
+		if h.logger != nil {
 			h.logger.ErrorContext(r.Context(), "failed to create trip", slog.String("error", err.Error()))
 		}
+		status, prob := domainerror.Problem(err)
 		domainerror.WriteProblem(w, status, prob)
 		return
 	}

@@ -56,10 +56,10 @@ func (r *Repository) AddStatusHistory(ctx context.Context, tripID uuid.UUID, fro
 
 	executor := transaction.GetExecutor(ctx, r.pool)
 	query := `
-		INSERT INTO trip_status_history (trip_id, from_status, to_status, changed_at)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO trip_status_history (trip_id, from_status, to_status, reason, changed_at)
+		VALUES ($1, $2, $3, $4, $5)
 	`
-	_, err = executor.Exec(ctx, query, tripID, fromStatus, string(toStatus), changedAt)
+	_, err = executor.Exec(ctx, query, tripID, fromStatus, string(toStatus), nil, changedAt)
 	return err
 }
 
