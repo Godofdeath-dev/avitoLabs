@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -11,7 +12,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/getkin/kin-openapi/openapi3filter"
 	"github.com/google/uuid"
+	oapimiddleware "github.com/oapi-codegen/nethttp-middleware"
 
 	"github.com/Godofdeath-dev/avitoLabs/internal/config"
 	api "github.com/Godofdeath-dev/avitoLabs/internal/generated"
@@ -52,20 +55,13 @@ func (s *Server) ListTripPositions(w http.ResponseWriter, r *http.Request, tripI
 }
 
 // Health обрабатывает запрос GET /health (Liveness-проба).
-// Отвечает 200 OK до тех пор, пока процесс запущен и способен отвечать
-// В противном случае клиент не дождётся ответ
-// БД не проверяет
 func (s *Server) Health(w http.ResponseWriter, r *http.Request) {
-
 	w.Header().Set("Content-Type", "application/json")
-
-	w.WriteHeader(http.StatusOK) //200
-
+	w.WriteHeader(http.StatusOK) // 200
 	_ = json.NewEncoder(w).Encode(api.HealthResponse{Status: api.Ok})
 }
 
 // Ready обрабатывает запрос GET /ready
-// проверяет жива ли бд
 func (s *Server) Ready(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -86,19 +82,17 @@ func (s *Server) Ready(w http.ResponseWriter, r *http.Request) {
 func (s *Server) CreateTrip(w http.ResponseWriter, r *http.Request, params api.CreateTripParams) {
 	var body api.CreateTripJSONRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeProblem(w, http.StatusBadRequest, "bad_request", "Invalid JSON", err.Error())
+		writeProblem(w, http.StatusBadRequest, "invalid_request", "Invalid JSON", err.Error())
 		return
 	}
 
-	if body.Price <= 0 {
-		writeProblem(w, http.StatusBadRequest, "bad_request", "Invalid price", "Price must be greater than zero")
+	// Бизнес-проверки, не покрытые OpenAPI: нулевая цена разрешена, пустые UUID отклоняем
+	if body.Price < 0 {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", "Invalid price", "Price must be zero or greater")
 		return
 	}
-	if body.StartPoint.Latitude < -90 || body.StartPoint.Latitude > 90 ||
-		body.StartPoint.Longitude < -180 || body.StartPoint.Longitude > 180 ||
-		body.EndPoint.Latitude < -90 || body.EndPoint.Latitude > 90 ||
-		body.EndPoint.Longitude < -180 || body.EndPoint.Longitude > 180 {
-		writeProblem(w, http.StatusBadRequest, "bad_request", "Invalid coordinates", "Coordinates are out of range")
+	if body.UserId == uuid.Nil || body.DriverId == uuid.Nil {
+		writeProblem(w, http.StatusBadRequest, "invalid_request", "Invalid UUID", "User ID and Driver ID cannot be empty (nil UUID)")
 		return
 	}
 
@@ -113,7 +107,6 @@ func (s *Server) CreateTrip(w http.ResponseWriter, r *http.Request, params api.C
 		StartedAt:  time.Now().UTC(),
 	}
 
-	// Выполняем вставку в trips и в trip_status_history атомарно через TxManager
 	err := s.txManager.Do(r.Context(), func(ctx context.Context) error {
 		if err := s.repo.InsertTrip(ctx, newTrip); err != nil {
 			return err
@@ -121,11 +114,17 @@ func (s *Server) CreateTrip(w http.ResponseWriter, r *http.Request, params api.C
 		return s.repo.AddStatusHistory(ctx, newTrip.Id, nil, newTrip.Status, newTrip.StartedAt)
 	})
 	if err != nil {
+		if errors.Is(err, repository.ErrDriverBusy) {
+			writeProblem(w, http.StatusConflict, "driver_busy", "Conflict", "Driver already has an active trip")
+			return
+		}
 		slog.Error("failed to create trip", "error", err)
 		writeProblem(w, http.StatusInternalServerError, "internal_error", "Internal Error", "Failed to save trip")
 		return
 	}
 
+	// Установка обязательного заголовка Location перед отправкой 201
+	w.Header().Set("Location", fmt.Sprintf("/api/v1/trips/%s", newTrip.Id.String()))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(newTrip)
@@ -169,7 +168,7 @@ func (s *Server) FinishTrip(w http.ResponseWriter, r *http.Request, tripId api.T
 			return
 		}
 		if errors.Is(err, repository.ErrAlreadyFinished) {
-			writeProblem(w, http.StatusConflict, "trip_already_completed", "Conflict", "Trip is already completed")
+			writeProblem(w, http.StatusConflict, "trip_completed", "Conflict", "Trip is already completed") // Исправлено на trip_completed
 			return
 		}
 		slog.Error("failed to finish trip", "error", err)
@@ -181,24 +180,21 @@ func (s *Server) FinishTrip(w http.ResponseWriter, r *http.Request, tripId api.T
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(trip)
 }
+
 func main() {
-	// 1. Читаем конфигурацию из переменных окружения
+	// 1. Читаем конфигурацию
 	cfg, err := config.Load()
 	if err != nil {
-		// Если обязательные переменные (HTTP_ADDR, DATABASE_URL) не переданы - выходим
 		slog.Error("failed to load configuration", "error", err)
 		os.Exit(1)
 	}
 
-	// Настраиваем глобальный логгер, чтобы он писал логи в формате JSON в stdout
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo,
-	}))
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
-	// 2. Инициализируем пул соединений с PostgreSQL
+	// 2. БД
 	ctx := context.Background()
-	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL) // парсим конфиг
+	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
 	if err != nil {
 		slog.Error("failed to parse database url", "error", err)
 		os.Exit(1)
@@ -208,12 +204,11 @@ func main() {
 	poolCfg.MaxConnLifetime = cfg.DatabaseMaxConnLifetime
 	poolCfg.ConnConfig.ConnectTimeout = cfg.DatabaseConnectTimeout
 
-	pool, err := pgxpool.NewWithConfig(ctx, poolCfg) // подключаем бдшку
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		slog.Error("failed to create database pool:", "error", err)
 		os.Exit(1)
 	}
-	defer pool.Close()
 
 	poolCtx, cancel := context.WithTimeout(context.Background(), cfg.DatabaseConnectTimeout)
 	defer cancel()
@@ -223,15 +218,14 @@ func main() {
 	}
 	slog.Info("connected to postgres successfully")
 
-	// 3. Создаем роутер
+	// 3. Создаем роутер и репозитории
 	r := chi.NewRouter()
-	// добавляет индификаторы
 	r.Use(middleware.RequestID)
-	// Перехватывает паники
 	r.Use(middleware.Recoverer)
-	// репозиторий для сервера
-	repo := repository.NewTripRepository(pool)
-	txManager := repository.NewTxManager(pool)
+
+	// Передаем таймаут базы данных в репозиторий и TxManager
+	repo := repository.NewTripRepository(pool, cfg.DatabaseQueryTimeout)
+	txManager := repository.NewTxManager(pool, cfg.DatabaseQueryTimeout)
 
 	serverImpl := &Server{
 		pool:      pool,
@@ -239,51 +233,86 @@ func main() {
 		txManager: txManager,
 	}
 
-	// Регистрируем маршруты OpenAPI в роутере chi
-	api.HandlerFromMux(serverImpl, r)
+	// 4. Подключаем OpenAPI валидатор
+	swagger, err := api.GetSwagger()
+	if err != nil {
+		slog.Error("failed to load swagger spec", "error", err)
+		os.Exit(1)
+	}
+	swagger.Servers = nil // Очищаем список серверов для корректной валидации
 
-	// 4. запускаем сервер http сервер
+	validatorOptions := &oapimiddleware.Options{
+		Options: openapi3filter.Options{
+			AuthenticationFunc: openapi3filter.NoopAuthenticationFunc,
+		},
+		ErrorHandler: func(w http.ResponseWriter, message string, statusCode int) {
+			writeProblem(w, statusCode, "invalid_request", "Invalid Request", message)
+		},
+	}
+	r.Use(oapimiddleware.OapiRequestValidatorWithOptions(swagger, validatorOptions))
+
+	// 5. Регистрируем маршруты с обработчиком ошибок в параметрах пути (ErrorHandlerFunc)
+	handlerOptions := api.ChiServerOptions{
+		BaseRouter: r,
+		ErrorHandlerFunc: func(w http.ResponseWriter, r *http.Request, err error) {
+			writeProblem(w, http.StatusBadRequest, "invalid_request", "Invalid parameter", err.Error())
+		},
+	}
+	api.HandlerWithOptions(serverImpl, handlerOptions)
+
+	// 6. запускаем сервер
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           r,
-		ReadHeaderTimeout: 2 * time.Second,  // Время на вычитывание HTTP-заголовков
-		ReadTimeout:       5 * time.Second,  // Время на вычитывание всего тела запроса
-		WriteTimeout:      5 * time.Second,  // Время на запись ответа клиенту
-		IdleTimeout:       30 * time.Second, // Время жизни неактивного keep-alive соединения
+		ReadHeaderTimeout: 2 * time.Second,
+		ReadTimeout:       5 * time.Second,
+		WriteTimeout:      5 * time.Second,
+		IdleTimeout:       30 * time.Second,
 	}
 
 	serverErrors := make(chan error, 1)
 
-	// Запускаем слушание порта в фоновой горутине, чтобы не блокировать выполнение main
 	go func() {
 		slog.Info("starting HTTP server", "addr", cfg.HTTPAddr)
-		// ListenAndServe блокирует поток
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErrors <- err
 		}
 	}()
 
-	// 5. Ожидаем сигналы операционной системы для Graceful Shutdown
-
+	// 7. Graceful Shutdown
 	shutdownSignals := make(chan os.Signal, 1)
 	signal.Notify(shutdownSignals, syscall.SIGINT, syscall.SIGTERM)
 
 	select {
-	case err := <-serverErrors: // сервер упал
+	case err := <-serverErrors:
 		slog.Error("server failed to start", "error", err)
 		os.Exit(1)
 
-	case sig := <-shutdownSignals: // shutdown
-
+	case sig := <-shutdownSignals:
 		slog.Info("shutdown signal received", "signal", sig.String())
 
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 		defer cancel()
 
-		if err := httpServer.Shutdown(shutdownCtx); err != nil {
-			slog.Error("graceful shutdown failed, forcing close", "error", err)
-			_ = httpServer.Close()
+		done := make(chan struct{})
+
+		go func() {
+			if err := httpServer.Shutdown(shutdownCtx); err != nil {
+				slog.Error("server shutdown failed", "error", err)
+			}
+			if pool != nil {
+				pool.Close()
+				slog.Info("database connection pool closed")
+			}
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			slog.Info("graceful shutdown completed")
+		case <-shutdownCtx.Done():
+			slog.Error("shutdown timeout exceeded, forcing exit")
+			os.Exit(1)
 		}
-		slog.Info("server stopped gracefully")
 	}
 }

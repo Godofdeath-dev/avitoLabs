@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -10,7 +11,6 @@ import (
 )
 
 type txKey struct{}
-
 
 type QueryExecutor interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
@@ -23,52 +23,59 @@ type TxManager interface {
 }
 
 type txManager struct {
-	pool *pgxpool.Pool
+	pool    *pgxpool.Pool
+	timeout time.Duration
 }
 
-func NewTxManager(pool *pgxpool.Pool) TxManager {
-	return &txManager{pool: pool}
+// Теперь при инициализации передаем таймаут из конфига
+func NewTxManager(pool *pgxpool.Pool, timeout time.Duration) TxManager {
+	return &txManager{
+		pool:    pool,
+		timeout: timeout,
+	}
 }
 
 func (tm *txManager) Do(ctx context.Context, fn func(ctx context.Context) error) (err error) {
-	// Если транзакция уже открыта выше по стеку вызовов, используем её повторно
 	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok && tx != nil {
 		return fn(ctx)
 	}
 
-	// Уровень изоляции: ReadCommitted
 	opts := pgx.TxOptions{
 		IsoLevel: pgx.ReadCommitted,
 	}
 
-	tx, err := tm.pool.BeginTx(ctx, opts)
+	// Ограничиваем таймаутом весь процесс транзакции, включая открытие и закрытие
+	txCtx, cancel := context.WithTimeout(ctx, tm.timeout)
+	defer cancel()
+
+	tx, err := tm.pool.BeginTx(txCtx, opts)
 	if err != nil {
 		return fmt.Errorf("failed to begin tx: %w", err)
 	}
 
 	defer func() {
 		if p := recover(); p != nil {
-			_ = tx.Rollback(ctx)
+			_ = tx.Rollback(txCtx)
 			panic(p)
 		} else if err != nil {
-			_ = tx.Rollback(ctx)
+			_ = tx.Rollback(txCtx)
 		}
 	}()
 
-	ctxWithTx := context.WithValue(ctx, txKey{}, tx)
+	ctxWithTx := context.WithValue(txCtx, txKey{}, tx)
 
 	if err = fn(ctxWithTx); err != nil {
 		return err
 	}
 
-	if err = tx.Commit(ctx); err != nil {
+	if err = tx.Commit(txCtx); err != nil {
 		return fmt.Errorf("failed to commit tx: %w", err)
 	}
 
 	return nil
 }
 
-// getExecutor извлекает активную транзакцию из контекста. Если её нет — возвращает пул
+// getExecutor извлекает активную транзакцию из контекста. Если её нет - возвращает пул
 func getExecutor(ctx context.Context, pool *pgxpool.Pool) QueryExecutor {
 	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok && tx != nil {
 		return tx
