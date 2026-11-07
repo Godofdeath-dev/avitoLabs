@@ -1,0 +1,14 @@
+//go:generate mockgen -source ${GOFILE} -destination mocks_test.go -package ${GOPACKAGE}_test
+package get
+
+import (
+	"context"
+
+	"github.com/google/uuid"
+
+	"github.com/Godofdeath-dev/avitoLabs/internal/domain/trip"
+)
+
+type usecase interface {
+	Execute(ctx context.Context, id uuid.UUID) (*trip.Trip, error)
+}
