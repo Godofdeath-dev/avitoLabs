@@ -9,7 +9,7 @@ generate:
 
 .PHONY: run
 run:
-	go run ./cmd/trip-service/main.go
+	export $$(grep -v '^#' .env | xargs) && go run ./cmd/trip-service/main.go
 
 .PHONY: migrate
 migrate:
