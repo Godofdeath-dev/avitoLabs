@@ -5,6 +5,7 @@ import (
 
 	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/metric/noop"
 
 	"github.com/Godofdeath-dev/avitoLabs/internal/config"
 )
@@ -19,8 +20,9 @@ func NewPool(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, error) {
 	poolCfg.MaxConnLifetime = cfg.DatabaseMaxConnLifetime
 	poolCfg.ConnConfig.ConnectTimeout = cfg.DatabaseConnectTimeout
 
-	// Инструментирование запросов в БД на уровне пула
-	poolCfg.ConnConfig.Tracer = otelpgx.NewTracer()
+	poolCfg.ConnConfig.Tracer = otelpgx.NewTracer(
+		otelpgx.WithMeterProvider(noop.NewMeterProvider()),
+	)
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {

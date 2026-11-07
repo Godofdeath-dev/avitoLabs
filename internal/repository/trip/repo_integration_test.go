@@ -28,12 +28,10 @@ func setupTestDB(t *testing.T) *pgxpool.Pool {
 	if err != nil {
 		t.Fatalf("failed to connect to db: %v", err)
 	}
-	_, err = pool.Exec(ctx, "TRUNCATE TABLE trip_status_history, trips CASCADE")
-	if err != nil {
-		t.Fatalf("failed to truncate tables: %v", err)
-	}
+
+	// Закрываем пул после завершения всех тестов,
+	// удаление данных больше не делаем на уровне всей БД.
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), "TRUNCATE TABLE trip_status_history, trips CASCADE")
 		pool.Close()
 	})
 	return pool
@@ -46,21 +44,35 @@ func TestRepository_TransactionRollback(t *testing.T) {
 	repo := triprepo.New(pool, nil)
 
 	coord := trip.Coordinates{Latitude: 55.75, Longitude: 37.61}
-	newTrip, err := trip.NewTrip(uuid.New(), uuid.New(), 1000, coord, coord, time.Now().UTC())
+
+	// Создаем тестовую поездку
+	testID := uuid.New()
+	newTrip, err := trip.NewTrip(testID, uuid.New(), 1000, coord, coord, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("failed to create domain trip: %v", err)
 	}
 
+	// Функция очистки: удаляем только ту поездку, которую создал этот тест
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DELETE FROM trip_status_history WHERE trip_id = $1", testID)
+		_, _ = pool.Exec(context.Background(), "DELETE FROM trips WHERE id = $1", testID)
+	})
+
 	// Сценарий 8: INSERT в первой таблице успешен, на второй операции ошибка -> полный откат
-	simulatedErr := errors.New("second insert failed")
 	err = txManager.Do(ctx, func(txCtx context.Context) error {
+		// Первая успешная вставка
 		if err := repo.InsertTrip(txCtx, newTrip); err != nil {
 			return err
 		}
-		return simulatedErr
+
+		// Имитируем реальную ошибку БД, пытаясь вставить ту же самую запись второй раз
+		// Это вызовет нарушение уникальности (unique_violation)
+		return repo.InsertTrip(txCtx, newTrip)
 	})
-	if !errors.Is(err, simulatedErr) {
-		t.Fatalf("expected simulatedErr, got %v", err)
+
+	// Ожидаем, что транзакция вернет ошибку
+	if err == nil {
+		t.Fatalf("expected db error from second insert, got nil")
 	}
 
 	// Проверяем, что запись в trips откатилась и в базе её нет

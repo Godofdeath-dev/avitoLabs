@@ -1,11 +1,12 @@
 package trip_test
 
 import (
-	"errors"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/Godofdeath-dev/avitoLabs/internal/domain/trip"
 )
@@ -68,21 +69,15 @@ func TestNewTrip(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			got, err := trip.NewTrip(uuid.New(), uuid.New(), tt.price, tt.start, tt.end, now)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("NewTrip() error = %v, wantErr %v", err, tt.wantErr)
-			}
+
 			if tt.wantErr {
+				require.Error(t, err)
 				var valErr *trip.ValidationError
-				if !errors.As(err, &valErr) {
-					t.Fatalf("expected ValidationError, got %T", err)
-				}
-				if valErr.Field != tt.wantField {
-					t.Errorf("field = %s, want %s", valErr.Field, tt.wantField)
-				}
-				return
-			}
-			if got.Status != trip.StatusActive {
-				t.Errorf("status = %s, want %s", got.Status, trip.StatusActive)
+				require.ErrorAs(t, err, &valErr, "expected ValidationError")
+				assert.Equal(t, tt.wantField, valErr.Field)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, trip.StatusActive, got.Status)
 			}
 		})
 	}
@@ -92,25 +87,19 @@ func TestTrip_Finish(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC()
 	coord := trip.Coordinates{Latitude: 55, Longitude: 37}
+
 	tr, err := trip.NewTrip(uuid.New(), uuid.New(), 1000, coord, coord, now)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Сценарий 3: завершение активной поездки — успех
 	finishTime := now.Add(15 * time.Minute)
-	if err := tr.Finish(finishTime); err != nil {
-		t.Fatalf("Finish() unexpected error = %v", err)
-	}
-	if tr.Status != trip.StatusCompleted {
-		t.Errorf("status = %s, want %s", tr.Status, trip.StatusCompleted)
-	}
-	if tr.FinishedAt == nil || !tr.FinishedAt.Equal(finishTime) {
-		t.Errorf("finishedAt = %v, want %v", tr.FinishedAt, finishTime)
-	}
+	err = tr.Finish(finishTime)
+	require.NoError(t, err)
+	assert.Equal(t, trip.StatusCompleted, tr.Status)
+	assert.NotNil(t, tr.FinishedAt)
+	assert.True(t, tr.FinishedAt.Equal(finishTime))
 
 	// Сценарий 4: повторное завершение -> ErrTripCompleted
-	if err := tr.Finish(finishTime); !errors.Is(err, trip.ErrTripCompleted) {
-		t.Errorf("expected ErrTripCompleted, got %v", err)
-	}
+	err = tr.Finish(finishTime)
+	require.ErrorIs(t, err, trip.ErrTripCompleted)
 }
