@@ -1,0 +1,259 @@
+﻿{
+    "refresh":  "5s",
+    "version":  0,
+    "panels":  [
+                   {
+                       "fieldConfig":  {
+                                           "defaults":  {
+                                                            "unit":  "short"
+                                                        },
+                                           "overrides":  [
+
+                                                         ]
+                                       },
+                       "id":  1,
+                       "gridPos":  {
+                                       "y":  0,
+                                       "w":  8,
+                                       "x":  0,
+                                       "h":  7
+                                   },
+                       "datasource":  {
+                                          "type":  "prometheus",
+                                          "uid":  "prometheus"
+                                      },
+                       "title":  "Created trips",
+                       "targets":  [
+                                       {
+                                           "instant":  true,
+                                           "legendFormat":  "{{http_route}}",
+                                           "expr":  "sum(tripgo_trips_created_total)",
+                                           "refId":  "A"
+                                       }
+                                   ],
+                       "type":  "stat",
+                       "options":  {
+                                       "colorMode":  "value",
+                                       "graphMode":  "none",
+                                       "reduceOptions":  {
+                                                             "values":  false,
+                                                             "calcs":  [
+                                                                           "lastNotNull"
+                                                                       ]
+                                                         }
+                                   }
+                   },
+                   {
+                       "fieldConfig":  {
+                                           "defaults":  {
+                                                            "unit":  "short"
+                                                        },
+                                           "overrides":  [
+
+                                                         ]
+                                       },
+                       "id":  2,
+                       "gridPos":  {
+                                       "y":  0,
+                                       "w":  8,
+                                       "x":  8,
+                                       "h":  7
+                                   },
+                       "datasource":  {
+                                          "type":  "prometheus",
+                                          "uid":  "prometheus"
+                                      },
+                       "title":  "Completed trips",
+                       "targets":  [
+                                       {
+                                           "instant":  true,
+                                           "legendFormat":  "{{http_route}}",
+                                           "expr":  "sum(tripgo_trips_completed_total)",
+                                           "refId":  "A"
+                                       }
+                                   ],
+                       "type":  "stat",
+                       "options":  {
+                                       "colorMode":  "value",
+                                       "graphMode":  "none",
+                                       "reduceOptions":  {
+                                                             "values":  false,
+                                                             "calcs":  [
+                                                                           "lastNotNull"
+                                                                       ]
+                                                         }
+                                   }
+                   },
+                   {
+                       "fieldConfig":  {
+                                           "defaults":  {
+                                                            "unit":  "short"
+                                                        },
+                                           "overrides":  [
+
+                                                         ]
+                                       },
+                       "id":  3,
+                       "gridPos":  {
+                                       "y":  0,
+                                       "w":  8,
+                                       "x":  16,
+                                       "h":  7
+                                   },
+                       "datasource":  {
+                                          "type":  "prometheus",
+                                          "uid":  "prometheus"
+                                      },
+                       "title":  "HTTP requests",
+                       "targets":  [
+                                       {
+                                           "instant":  true,
+                                           "legendFormat":  "{{http_route}}",
+                                           "expr":  "sum(http_server_request_duration_seconds_count)",
+                                           "refId":  "A"
+                                       }
+                                   ],
+                       "type":  "stat",
+                       "options":  {
+                                       "colorMode":  "value",
+                                       "graphMode":  "none",
+                                       "reduceOptions":  {
+                                                             "values":  false,
+                                                             "calcs":  [
+                                                                           "lastNotNull"
+                                                                       ]
+                                                         }
+                                   }
+                   },
+                   {
+                       "fieldConfig":  {
+                                           "defaults":  {
+                                                            "unit":  "short"
+                                                        },
+                                           "overrides":  [
+
+                                                         ]
+                                       },
+                       "id":  4,
+                       "gridPos":  {
+                                       "y":  7,
+                                       "w":  8,
+                                       "x":  0,
+                                       "h":  7
+                                   },
+                       "datasource":  {
+                                          "type":  "prometheus",
+                                          "uid":  "prometheus"
+                                      },
+                       "title":  "DB operations",
+                       "targets":  [
+                                       {
+                                           "instant":  true,
+                                           "legendFormat":  "{{http_route}}",
+                                           "expr":  "sum(db_client_operation_duration_seconds_count)",
+                                           "refId":  "A"
+                                       }
+                                   ],
+                       "type":  "stat",
+                       "options":  {
+                                       "colorMode":  "value",
+                                       "graphMode":  "none",
+                                       "reduceOptions":  {
+                                                             "values":  false,
+                                                             "calcs":  [
+                                                                           "lastNotNull"
+                                                                       ]
+                                                         }
+                                   }
+                   },
+                   {
+                       "fieldConfig":  {
+                                           "defaults":  {
+                                                            "unit":  "s"
+                                                        },
+                                           "overrides":  [
+
+                                                         ]
+                                       },
+                       "id":  5,
+                       "gridPos":  {
+                                       "y":  7,
+                                       "w":  8,
+                                       "x":  8,
+                                       "h":  7
+                                   },
+                       "datasource":  {
+                                          "type":  "prometheus",
+                                          "uid":  "prometheus"
+                                      },
+                       "title":  "Mean HTTP duration by route",
+                       "targets":  [
+                                       {
+                                           "instant":  true,
+                                           "legendFormat":  "{{http_route}}",
+                                           "expr":  "sum by (http_route) (http_server_request_duration_seconds_sum) / sum by (http_route) (http_server_request_duration_seconds_count)",
+                                           "refId":  "A"
+                                       }
+                                   ],
+                       "type":  "stat",
+                       "options":  {
+                                       "colorMode":  "value",
+                                       "graphMode":  "none",
+                                       "reduceOptions":  {
+                                                             "values":  false,
+                                                             "calcs":  [
+                                                                           "lastNotNull"
+                                                                       ]
+                                                         }
+                                   }
+                   },
+                   {
+                       "fieldConfig":  {
+                                           "defaults":  {
+                                                            "unit":  "short"
+                                                        },
+                                           "overrides":  [
+
+                                                         ]
+                                       },
+                       "id":  6,
+                       "gridPos":  {
+                                       "y":  7,
+                                       "w":  8,
+                                       "x":  16,
+                                       "h":  7
+                                   },
+                       "datasource":  {
+                                          "type":  "prometheus",
+                                          "uid":  "prometheus"
+                                      },
+                       "title":  "Active HTTP requests",
+                       "targets":  [
+                                       {
+                                           "instant":  true,
+                                           "legendFormat":  "{{http_route}}",
+                                           "expr":  "sum by (http_route) (http_server_active_requests)",
+                                           "refId":  "A"
+                                       }
+                                   ],
+                       "type":  "stat",
+                       "options":  {
+                                       "colorMode":  "value",
+                                       "graphMode":  "none",
+                                       "reduceOptions":  {
+                                                             "values":  false,
+                                                             "calcs":  [
+                                                                           "lastNotNull"
+                                                                       ]
+                                                         }
+                                   }
+                   }
+               ],
+    "uid":  "lab2-audit",
+    "time":  {
+                 "to":  "now",
+                 "from":  "now-1h"
+             },
+    "schemaVersion":  39,
+    "title":  "Lab 2 - HTTP, database and trips"
+}

@@ -49,7 +49,7 @@ func TestHandler_Handle(t *testing.T) {
 		uc.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nil, trip.ErrDriverBusy)
 
 		h := create.New(uc, nil)
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/trips", bytes.NewBufferString(`{"price":1000}`))
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/trips", bytes.NewBufferString(`{"user_id":"00000000-0000-0000-0000-000000000001","driver_id":"00000000-0000-0000-0000-000000000002","price":1000,"start_point":{"latitude":0,"longitude":0},"end_point":{"latitude":0,"longitude":0}}`))
 		rec := httptest.NewRecorder()
 
 		h.Handle(rec, req)
@@ -67,7 +67,7 @@ func TestHandler_Handle(t *testing.T) {
 		uc.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nil, errors.New("SELECT * FROM secret_table failed"))
 
 		h := create.New(uc, nil)
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/trips", bytes.NewBufferString(`{"price":1000}`))
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/trips", bytes.NewBufferString(`{"user_id":"00000000-0000-0000-0000-000000000001","driver_id":"00000000-0000-0000-0000-000000000002","price":1000,"start_point":{"latitude":0,"longitude":0},"end_point":{"latitude":0,"longitude":0}}`))
 		rec := httptest.NewRecorder()
 
 		h.Handle(rec, req)

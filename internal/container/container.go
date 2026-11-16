@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -26,8 +25,6 @@ import (
 	getuc "github.com/Godofdeath-dev/avitoLabs/internal/usecase/trip/get"
 )
 
-const serviceName = "trip-service"
-
 type Container struct {
 	httpServer   *http.Server
 	pool         *pgxpool.Pool
@@ -36,10 +33,12 @@ type Container struct {
 }
 
 func New(ctx context.Context, cfg *config.Config) (*Container, error) {
+	serviceName := cfg.ServiceName
 	logger := telemetry.NewLogger(cfg.LogLevel, serviceName, nil)
 
 	otelShutdown, err := telemetry.SetupOTel(ctx, serviceName)
 	if err != nil {
+		_ = otelShutdown(ctx)
 		return nil, fmt.Errorf("setup otel: %w", err)
 	}
 
@@ -49,7 +48,7 @@ func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 		return nil, fmt.Errorf("create metrics: %w", err)
 	}
 
-	pool, err := postgres.NewPool(ctx, cfg)
+	pool, err := postgres.NewPool(ctx, cfg, metrics)
 	if err != nil {
 		_ = otelShutdown(ctx)
 		return nil, fmt.Errorf("create postgres pool: %w", err)
@@ -63,8 +62,8 @@ func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
 
-	txManager := transaction.NewManager(pool)
-	repo := triprepo.New(pool, metrics)
+	txManager := transaction.NewManager(pool, cfg.DatabaseQueryTimeout)
+	repo := triprepo.New(pool, cfg.DatabaseQueryTimeout)
 
 	createUsecase := createuc.New(repo, txManager, metrics, logger)
 	getUsecase := getuc.New(repo)
@@ -73,7 +72,7 @@ func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 	createHandler := createhttp.New(createUsecase, logger)
 	getHandler := gethttp.New(getUsecase, logger)
 	finishHandler := finishhttp.New(finishUsecase, logger)
-	healthHandler := health.New(pool)
+	healthHandler := health.New(pool, cfg.DatabaseQueryTimeout)
 
 	r := chi.NewRouter()
 	// Порядок из п. 6.4: Recover -> Tracing -> Logging -> Metrics -> роутер
@@ -90,11 +89,11 @@ func New(ctx context.Context, cfg *config.Config) (*Container, error) {
 
 	httpServer := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           r,
-		ReadHeaderTimeout: 2 * time.Second,
-		ReadTimeout:       5 * time.Second,
-		WriteTimeout:      5 * time.Second,
-		IdleTimeout:       30 * time.Second,
+		Handler:           middleware.ResolveRoute(r)(r),
+		ReadHeaderTimeout: cfg.HTTPReadHeaderTimeout,
+		ReadTimeout:       cfg.HTTPReadTimeout,
+		WriteTimeout:      cfg.HTTPWriteTimeout,
+		IdleTimeout:       cfg.HTTPIdleTimeout,
 	}
 
 	return &Container{

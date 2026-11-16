@@ -3,7 +3,7 @@ package trip
 import (
 	"context"
 	"errors"
-	"time"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -13,10 +13,8 @@ import (
 )
 
 func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (_ *domain.Trip, err error) {
-	start := time.Now()
-	defer func() {
-		r.recordMetric(ctx, start, "SELECT", "trips", err)
-	}()
+	ctx, cancel := context.WithTimeout(ctx, r.queryTimeout)
+	defer cancel()
 
 	executor := transaction.GetExecutor(ctx, r.pool)
 	query := `
@@ -31,10 +29,8 @@ func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (_ *domain.Trip,
 }
 
 func (r *Repository) GetByIDForUpdate(ctx context.Context, id uuid.UUID) (_ *domain.Trip, err error) {
-	start := time.Now()
-	defer func() {
-		r.recordMetric(ctx, start, "SELECT", "trips", err)
-	}()
+	ctx, cancel := context.WithTimeout(ctx, r.queryTimeout)
+	defer cancel()
 
 	executor := transaction.GetExecutor(ctx, r.pool)
 	query := `
@@ -69,7 +65,7 @@ func scanTrip(row pgx.Row) (*domain.Trip, error) {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrTripNotFound
 		}
-		return nil, err
+		return nil, fmt.Errorf("scan trip: %w", err)
 	}
 	t.Status = domain.Status(statusStr)
 	return &t, nil

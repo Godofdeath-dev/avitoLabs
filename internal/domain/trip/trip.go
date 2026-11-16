@@ -31,8 +31,8 @@ type Trip struct {
 }
 
 func NewTrip(userID, driverID uuid.UUID, price int64, start, end Coordinates, now time.Time) (*Trip, error) {
-	if price <= 0 {
-		return nil, &ValidationError{Field: "price", Reason: "price must be greater than zero"}
+	if price < 0 {
+		return nil, &ValidationError{Field: "price", Reason: "price must not be negative"}
 	}
 	if !validCoords(start) {
 		return nil, &ValidationError{Field: "start_point", Reason: "coordinates are out of range"}

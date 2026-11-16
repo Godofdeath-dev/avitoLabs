@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"strings"
-	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
@@ -89,31 +88,36 @@ func SetupOTel(ctx context.Context, serviceName string) (func(context.Context) e
 		propagation.Baggage{},
 	))
 
-	// Если переменная OTEL_EXPORTER_OTLP_ENDPOINT не задана, работаем с no-op без падения
+	// Without an exporter, local spans still provide IDs for correlated logs.
 	if os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") == "" {
+		tp := sdktrace.NewTracerProvider(sdktrace.WithResource(res))
+		mp := sdkmetric.NewMeterProvider(sdkmetric.WithResource(res))
+		otel.SetTracerProvider(tp)
+		otel.SetMeterProvider(mp)
+		shutdownFuncs = append(shutdownFuncs, tp.Shutdown, mp.Shutdown)
 		return shutdown, nil
 	}
 
-	traceExporter, err := otlptracehttp.New(ctx, otlptracehttp.WithTimeout(2*time.Second))
+	traceExporter, err := otlptracehttp.New(ctx)
 	if err != nil {
 		return shutdown, err
 	}
 
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithResource(res),
-		sdktrace.WithBatcher(traceExporter, sdktrace.WithBatchTimeout(time.Second)),
+		sdktrace.WithBatcher(traceExporter),
 	)
 	shutdownFuncs = append(shutdownFuncs, tp.Shutdown)
 	otel.SetTracerProvider(tp)
 
-	metricExporter, err := otlpmetrichttp.New(ctx, otlpmetrichttp.WithTimeout(2*time.Second))
+	metricExporter, err := otlpmetrichttp.New(ctx)
 	if err != nil {
 		return shutdown, err
 	}
 
 	mp := sdkmetric.NewMeterProvider(
 		sdkmetric.WithResource(res),
-		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter, sdkmetric.WithInterval(5*time.Second))),
+		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter)),
 	)
 	shutdownFuncs = append(shutdownFuncs, mp.Shutdown)
 	otel.SetMeterProvider(mp)

@@ -1,28 +1,23 @@
-.PHONY: generate
+﻿SHELL := bash
+
+.PHONY: generate run migrate test test-integration lint
+
 generate:
-	go tool oapi-codegen \
-		-generate types,chi-server,spec \
-		-package api \
-		-o internal/generated/api.gen.go \
-		contracts/openapi/trip-service.openapi.yaml
+	go tool oapi-codegen -generate types,chi-server,spec -package api -o internal/generated/api.gen.go contracts/openapi/trip-service.openapi.yaml
 	go generate ./...
 
-.PHONY: run
 run:
-	export $$(grep -v '^#' .env | xargs) && go run ./cmd/trip-service/main.go
+	set -a; if [ -f .env ]; then . ./.env; fi; set +a; go run ./cmd/trip-service
 
-.PHONY: migrate
 migrate:
-	goose -dir migrations postgres "postgres://tripgo:tripgo@localhost:22032/tripgo?sslmode=disable" up
+	set -a; if [ -f .env ]; then . ./.env; fi; set +a; go tool goose -dir migrations postgres "$$DATABASE_URL" up
 
-.PHONY: test
 test:
-	go test -v ./...
+	go test -race -count=2 -coverprofile=coverage.out ./...
+	go tool cover -func=coverage.out
 
-.PHONY: test-integration
 test-integration:
-	go test -v -tags=integration ./...
+	set -a; if [ -f .env ]; then . ./.env; fi; set +a; go test -race -count=2 -tags=integration ./...
 
-.PHONY: lint
 lint:
 	golangci-lint run

@@ -14,11 +14,12 @@ type pinger interface {
 }
 
 type Handler struct {
-	db pinger
+	db      pinger
+	timeout time.Duration
 }
 
-func New(db pinger) *Handler {
-	return &Handler{db: db}
+func New(db pinger, timeout time.Duration) *Handler {
+	return &Handler{db: db, timeout: timeout}
 }
 
 func (h *Handler) Health(w http.ResponseWriter, _ *http.Request) {
@@ -30,7 +31,7 @@ func (h *Handler) Health(w http.ResponseWriter, _ *http.Request) {
 func (h *Handler) Ready(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), h.timeout)
 	defer cancel()
 
 	if h.db == nil || h.db.Ping(ctx) != nil {

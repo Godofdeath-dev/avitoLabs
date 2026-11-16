@@ -19,8 +19,8 @@ func New(uc usecase, l *slog.Logger) *Handler {
 }
 
 func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
-	var body api.CreateTripJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	body, err := decodeRequest(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
 		detail := "Invalid JSON payload"
 		domainerror.WriteProblem(w, http.StatusBadRequest, api.Problem{
 			Status: http.StatusBadRequest,
@@ -46,6 +46,7 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Location", "/api/v1/trips/"+res.ID.String())
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(toResponse(res))
 }

@@ -32,12 +32,10 @@ func TestNewTrip(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:      "zero price",
-			price:     0,
-			start:     validCoord,
-			end:       validCoord,
-			wantErr:   true,
-			wantField: "price",
+			name:  "zero price",
+			price: 0,
+			start: validCoord,
+			end:   validCoord,
 		},
 		{
 			name:      "negative price",

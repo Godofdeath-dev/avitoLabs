@@ -3,6 +3,7 @@ package trip
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,10 +14,8 @@ import (
 )
 
 func (r *Repository) InsertTrip(ctx context.Context, t *domain.Trip) (err error) {
-	start := time.Now()
-	defer func() {
-		r.recordMetric(ctx, start, "INSERT", "trips", err)
-	}()
+	ctx, cancel := context.WithTimeout(ctx, r.queryTimeout)
+	defer cancel()
 
 	executor := transaction.GetExecutor(ctx, r.pool)
 	query := `
@@ -40,19 +39,17 @@ func (r *Repository) InsertTrip(ctx context.Context, t *domain.Trip) (err error)
 	)
 	if err != nil {
 		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "trips_driver_active_unique_idx" {
 			return domain.ErrDriverBusy
 		}
-		return err
+		return fmt.Errorf("insert trip: %w", err)
 	}
 	return nil
 }
 
 func (r *Repository) AddStatusHistory(ctx context.Context, tripID uuid.UUID, fromStatus *string, toStatus domain.Status, changedAt time.Time) (err error) {
-	start := time.Now()
-	defer func() {
-		r.recordMetric(ctx, start, "INSERT", "trip_status_history", err)
-	}()
+	ctx, cancel := context.WithTimeout(ctx, r.queryTimeout)
+	defer cancel()
 
 	executor := transaction.GetExecutor(ctx, r.pool)
 	query := `
@@ -60,14 +57,15 @@ func (r *Repository) AddStatusHistory(ctx context.Context, tripID uuid.UUID, fro
 		VALUES ($1, $2, $3, $4, $5)
 	`
 	_, err = executor.Exec(ctx, query, tripID, fromStatus, string(toStatus), nil, changedAt)
-	return err
+	if err != nil {
+		return fmt.Errorf("write trip state: %w", err)
+	}
+	return nil
 }
 
 func (r *Repository) UpdateStatus(ctx context.Context, t *domain.Trip) (err error) {
-	start := time.Now()
-	defer func() {
-		r.recordMetric(ctx, start, "UPDATE", "trips", err)
-	}()
+	ctx, cancel := context.WithTimeout(ctx, r.queryTimeout)
+	defer cancel()
 
 	executor := transaction.GetExecutor(ctx, r.pool)
 	query := `
@@ -76,5 +74,8 @@ func (r *Repository) UpdateStatus(ctx context.Context, t *domain.Trip) (err erro
 		WHERE id = $1
 	`
 	_, err = executor.Exec(ctx, query, t.ID, string(t.Status), t.FinishedAt)
-	return err
+	if err != nil {
+		return fmt.Errorf("write trip state: %w", err)
+	}
+	return nil
 }

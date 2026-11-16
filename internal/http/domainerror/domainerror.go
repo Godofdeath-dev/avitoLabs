@@ -61,6 +61,9 @@ func WriteError(w http.ResponseWriter, err error) {
 }
 
 func WriteProblem(w http.ResponseWriter, status int, prob api.Problem) {
+	if prob.Type == "" {
+		prob.Type = "about:blank"
+	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(prob)

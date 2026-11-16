@@ -3,6 +3,7 @@ module github.com/Godofdeath-dev/avitoLabs
 go 1.26.4
 
 tool (
+ go.uber.org/mock/mockgen
 	github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
 	github.com/pressly/goose/v3/cmd/goose
 )

@@ -8,9 +8,14 @@ import (
 )
 
 type Config struct {
-	HTTPAddr        string
-	LogLevel        string
-	ShutdownTimeout time.Duration
+	HTTPAddr              string
+	ServiceName           string
+	HTTPReadHeaderTimeout time.Duration
+	HTTPReadTimeout       time.Duration
+	HTTPWriteTimeout      time.Duration
+	HTTPIdleTimeout       time.Duration
+	LogLevel              string
+	ShutdownTimeout       time.Duration
 
 	DatabaseURL             string
 	DatabaseMaxConns        int32
@@ -22,6 +27,7 @@ type Config struct {
 
 func Load() (*Config, error) {
 	cfg := &Config{}
+	cfg.ServiceName = getEnvOrDefault("OTEL_SERVICE_NAME", "trip-service")
 
 	// Обязательные переменные (без них сервис не стартует)
 	var err error
@@ -38,11 +44,11 @@ func Load() (*Config, error) {
 	// Переменные с безопасными дефолтами
 	cfg.LogLevel = getEnvOrDefault("LOG_LEVEL", "info")
 
-	shutdownSec, err := getDurationOrDefault("SHUTDOWN_TIMEOUT", 10*time.Second)
+	shutdownTimeout, err := getDurationOrDefault("SHUTDOWN_TIMEOUT", 10*time.Second)
 	if err != nil {
 		return nil, err
 	}
-	cfg.ShutdownTimeout = shutdownSec
+	cfg.ShutdownTimeout = shutdownTimeout
 
 	// Параметры пула БД
 	maxConns, err := getInt32OrDefault("DATABASE_MAX_CONNS", 10)
@@ -74,7 +80,26 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	cfg.DatabaseQueryTimeout = queryTimeout
+	for _, setting := range []struct {
+		name     string
+		fallback time.Duration
+		target   *time.Duration
+	}{
+		{"HTTP_READ_HEADER_TIMEOUT", 2 * time.Second, &cfg.HTTPReadHeaderTimeout},
+		{"HTTP_READ_TIMEOUT", 5 * time.Second, &cfg.HTTPReadTimeout},
+		{"HTTP_WRITE_TIMEOUT", 5 * time.Second, &cfg.HTTPWriteTimeout},
+		{"HTTP_IDLE_TIMEOUT", 30 * time.Second, &cfg.HTTPIdleTimeout},
+	} {
+		value, err := getDurationOrDefault(setting.name, setting.fallback)
+		if err != nil {
+			return nil, err
+		}
+		*setting.target = value
+	}
 
+	if cfg.DatabaseMaxConns <= 0 || cfg.DatabaseMinConns < 0 || cfg.DatabaseMinConns > cfg.DatabaseMaxConns {
+		return nil, fmt.Errorf("invalid DATABASE_MIN_CONNS / DATABASE_MAX_CONNS")
+	}
 	return cfg, nil
 }
 
@@ -101,6 +126,9 @@ func getDurationOrDefault(key string, fallback time.Duration) (time.Duration, er
 	d, err := time.ParseDuration(val)
 	if err != nil {
 		return 0, fmt.Errorf("invalid duration for %q: %w", key, err)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("%s must be positive", key)
 	}
 	return d, nil
 }

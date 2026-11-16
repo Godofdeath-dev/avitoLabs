@@ -11,40 +11,48 @@ import (
 	"github.com/Godofdeath-dev/avitoLabs/internal/container"
 )
 
-func main() {
+func main() { os.Exit(run()) }
+
+func run() int {
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 	cfg, err := config.Load()
 	if err != nil {
-		slog.Error("failed to load configuration", slog.String("error", err.Error()))
-		os.Exit(1)
+		slog.Error("failed to load configuration", "error", err)
+		return 1
 	}
-
 	ctx := context.Background()
 	c, err := container.New(ctx, cfg)
 	if err != nil {
-		slog.Error("failed to initialize container", slog.String("error", err.Error()))
-		os.Exit(1)
+		slog.Error("failed to initialize container", "error", err)
+		return 1
 	}
-
-	serverErrors := c.Start()
-
-	shutdownSignals := make(chan os.Signal, 1)
-	signal.Notify(shutdownSignals, syscall.SIGINT, syscall.SIGTERM)
-
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(signals)
+	exitCode := 0
 	select {
-	case err := <-serverErrors:
+	case err := <-c.Start():
 		if err != nil {
-			c.Logger().Error("server failed", slog.String("error", err.Error()))
-			os.Exit(1)
+			c.Logger().Error("server failed", "error", err)
+			exitCode = 1
 		}
-	case sig := <-shutdownSignals:
-		c.Logger().Info("shutdown signal received", slog.String("signal", sig.String()))
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
-		defer cancel()
-
-		if err := c.Shutdown(shutdownCtx); err != nil {
-			c.Logger().Error("graceful shutdown failed", slog.String("error", err.Error()))
-			os.Exit(1)
-		}
-		c.Logger().Info("server stopped gracefully")
+	case sig := <-signals:
+		c.Logger().Info("shutdown signal received", "signal", sig.String())
 	}
+	shutdownCtx, cancel := context.WithTimeout(ctx, cfg.ShutdownTimeout)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- c.Shutdown(shutdownCtx) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			c.Logger().Error("graceful shutdown failed", "error", err)
+			return 1
+		}
+	case <-shutdownCtx.Done():
+		c.Logger().Error("shutdown timeout exceeded; forcing exit", "error", shutdownCtx.Err())
+		return 1
+	}
+	c.Logger().Info("server stopped")
+	return exitCode
 }

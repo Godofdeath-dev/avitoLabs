@@ -3,6 +3,7 @@ package transaction
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -18,14 +19,17 @@ type QueryExecutor interface {
 }
 
 type Manager struct {
-	pool *pgxpool.Pool
+	pool    *pgxpool.Pool
+	timeout time.Duration
 }
 
-func NewManager(pool *pgxpool.Pool) *Manager {
-	return &Manager{pool: pool}
+func NewManager(pool *pgxpool.Pool, timeout time.Duration) *Manager {
+	return &Manager{pool: pool, timeout: timeout}
 }
 
 func (tm *Manager) Do(ctx context.Context, fn func(ctx context.Context) error) (err error) {
+	ctx, cancel := context.WithTimeout(ctx, tm.timeout)
+	defer cancel()
 	if tx, ok := ctx.Value(txKey{}).(pgx.Tx); ok && tx != nil {
 		return fn(ctx)
 	}
@@ -37,10 +41,14 @@ func (tm *Manager) Do(ctx context.Context, fn func(ctx context.Context) error) (
 
 	defer func() {
 		if p := recover(); p != nil {
-			_ = tx.Rollback(ctx)
+			rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), tm.timeout)
+			defer cancel()
+			_ = tx.Rollback(rollbackCtx)
 			panic(p)
 		} else if err != nil {
-			_ = tx.Rollback(ctx)
+			rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), tm.timeout)
+			defer cancel()
+			_ = tx.Rollback(rollbackCtx)
 		}
 	}()
 
