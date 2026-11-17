@@ -17,6 +17,12 @@ type Config struct {
 	LogLevel              string
 	ShutdownTimeout       time.Duration
 
+	PositionCheckInterval   time.Duration
+	PositionStaleAfter      time.Duration
+	PositionWorkers         int
+	PositionQueueSize       int
+	PushHTTPURL             string
+	PushRequestTimeout      time.Duration
 	DatabaseURL             string
 	DatabaseMaxConns        int32
 	DatabaseMinConns        int32
@@ -99,6 +105,9 @@ func Load() (*Config, error) {
 
 	if cfg.DatabaseMaxConns <= 0 || cfg.DatabaseMinConns < 0 || cfg.DatabaseMinConns > cfg.DatabaseMaxConns {
 		return nil, fmt.Errorf("invalid DATABASE_MIN_CONNS / DATABASE_MAX_CONNS")
+	}
+	if err := cfg.loadPositions(); err != nil {
+		return nil, err
 	}
 	return cfg, nil
 }

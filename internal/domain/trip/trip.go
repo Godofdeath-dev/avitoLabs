@@ -19,15 +19,16 @@ type Coordinates struct {
 }
 
 type Trip struct {
-	ID         uuid.UUID
-	UserID     uuid.UUID
-	DriverID   uuid.UUID
-	Price      int64
-	Status     Status
-	StartPoint Coordinates
-	EndPoint   Coordinates
-	StartedAt  time.Time
-	FinishedAt *time.Time
+	ID             uuid.UUID
+	UserID         uuid.UUID
+	DriverID       uuid.UUID
+	Price          int64
+	Status         Status
+	StartPoint     Coordinates
+	EndPoint       Coordinates
+	StartedAt      time.Time
+	FinishedAt     *time.Time
+	LastPositionAt *time.Time
 }
 
 func NewTrip(userID, driverID uuid.UUID, price int64, start, end Coordinates, now time.Time) (*Trip, error) {
@@ -35,10 +36,10 @@ func NewTrip(userID, driverID uuid.UUID, price int64, start, end Coordinates, no
 		return nil, &ValidationError{Field: "price", Reason: "price must not be negative"}
 	}
 	if !validCoords(start) {
-		return nil, &ValidationError{Field: "start_point", Reason: "coordinates are out of range"}
+		return nil, &ValidationError{Field: "start_point", Reason: invalidCoordinatesReason}
 	}
 	if !validCoords(end) {
-		return nil, &ValidationError{Field: "end_point", Reason: "coordinates are out of range"}
+		return nil, &ValidationError{Field: "end_point", Reason: invalidCoordinatesReason}
 	}
 
 	return &Trip{

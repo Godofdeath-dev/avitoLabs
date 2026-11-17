@@ -14,7 +14,7 @@ import (
 )
 
 func selectTrip(id uuid.UUID) sq.SelectBuilder {
-	return sq.Select("id", "user_id", "driver_id", "price", "status", "start_latitude", "start_longitude", "end_latitude", "end_longitude", "started_at", "finished_at").From("trips").Where(sq.Eq{"id": id}).PlaceholderFormat(sq.Dollar)
+	return sq.Select("id", "user_id", "driver_id", "price", "status", "start_latitude", "start_longitude", "end_latitude", "end_longitude", "started_at", "finished_at", "last_position_at").From("trips").Where(sq.Eq{"id": id}).PlaceholderFormat(sq.Dollar)
 }
 
 func (r *Repository) GetByID(ctx context.Context, id uuid.UUID) (*domain.Trip, error) {
@@ -40,7 +40,7 @@ func (r *Repository) GetByIDForUpdate(ctx context.Context, id uuid.UUID) (*domai
 func scanTrip(row pgx.Row) (*domain.Trip, error) {
 	var t domain.Trip
 	var status string
-	err := row.Scan(&t.ID, &t.UserID, &t.DriverID, &t.Price, &status, &t.StartPoint.Latitude, &t.StartPoint.Longitude, &t.EndPoint.Latitude, &t.EndPoint.Longitude, &t.StartedAt, &t.FinishedAt)
+	err := row.Scan(&t.ID, &t.UserID, &t.DriverID, &t.Price, &status, &t.StartPoint.Latitude, &t.StartPoint.Longitude, &t.EndPoint.Latitude, &t.EndPoint.Longitude, &t.StartedAt, &t.FinishedAt, &t.LastPositionAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, domain.ErrTripNotFound

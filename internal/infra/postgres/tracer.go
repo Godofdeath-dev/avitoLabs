@@ -46,6 +46,8 @@ func queryLabels(sql string) (string, string) {
 		switch word {
 		case "TRIPS":
 			collection = "trips"
+		case "TRIP_POSITIONS":
+			collection = "trip_positions"
 		case "TRIP_STATUS_HISTORY":
 			collection = "trip_status_history"
 		}

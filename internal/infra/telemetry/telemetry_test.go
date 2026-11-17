@@ -31,3 +31,21 @@ func TestLoggerCorrelatesDerivedLogger(t *testing.T) {
 		t.Fatalf("missing fields: %v", entry)
 	}
 }
+
+func TestLoggerWithoutSpanHasRequiredFields(t *testing.T) {
+	var output bytes.Buffer
+	logger := telemetry.NewLogger("info", "trip-service", &output)
+	logger.InfoContext(context.Background(), "positions worker started")
+	var entry map[string]any
+	if err := json.Unmarshal(output.Bytes(), &entry); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"time", "level", "msg", "service", "trace_id", "span_id"} {
+		if _, exists := entry[field]; !exists {
+			t.Errorf("missing field %s", field)
+		}
+	}
+	if entry["trace_id"] != "" || entry["span_id"] != "" {
+		t.Fatalf("unexpected trace context: %v", entry)
+	}
+}

@@ -5,10 +5,13 @@ import (
 	"fmt"
 )
 
+const invalidCoordinatesReason = "coordinates are out of range"
+
 var (
-	ErrTripNotFound  = errors.New("trip not found")
-	ErrTripCompleted = errors.New("trip already completed")
-	ErrDriverBusy    = errors.New("driver already has an active trip")
+	ErrPositionTripCompleted = errors.New("cannot save a position for a completed trip")
+	ErrTripNotFound          = errors.New("trip not found")
+	ErrTripCompleted         = errors.New("trip already completed")
+	ErrDriverBusy            = errors.New("driver already has an active trip")
 )
 
 type ValidationError struct {

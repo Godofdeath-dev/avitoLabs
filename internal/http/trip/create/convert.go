@@ -37,7 +37,8 @@ func toResponse(t *trip.Trip) api.Trip {
 			Latitude:  t.EndPoint.Latitude,
 			Longitude: t.EndPoint.Longitude,
 		},
-		StartedAt:  t.StartedAt,
-		FinishedAt: t.FinishedAt,
+		StartedAt:      t.StartedAt,
+		FinishedAt:     t.FinishedAt,
+		LastPositionAt: t.LastPositionAt,
 	}
 }

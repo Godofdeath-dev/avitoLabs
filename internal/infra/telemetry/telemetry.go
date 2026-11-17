@@ -24,13 +24,13 @@ type traceLogHandler struct {
 }
 
 func (h *traceLogHandler) Handle(ctx context.Context, r slog.Record) error {
-	span := trace.SpanFromContext(ctx)
-	if span.SpanContext().IsValid() {
-		r.AddAttrs(
-			slog.String("trace_id", span.SpanContext().TraceID().String()),
-			slog.String("span_id", span.SpanContext().SpanID().String()),
-		)
+	spanContext := trace.SpanContextFromContext(ctx)
+	var traceID, spanID string
+	if spanContext.IsValid() {
+		traceID = spanContext.TraceID().String()
+		spanID = spanContext.SpanID().String()
 	}
+	r.AddAttrs(slog.String("trace_id", traceID), slog.String("span_id", spanID))
 	return h.Handler.Handle(ctx, r)
 }
 

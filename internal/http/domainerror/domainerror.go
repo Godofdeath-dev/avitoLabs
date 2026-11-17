@@ -9,6 +9,8 @@ import (
 	api "github.com/Godofdeath-dev/avitoLabs/internal/generated"
 )
 
+const conflictTitle = "Conflict"
+
 func Problem(err error) (int, api.Problem) {
 	var valErr *trip.ValidationError
 	switch {
@@ -28,12 +30,14 @@ func Problem(err error) (int, api.Problem) {
 			Title:  "Not Found",
 			Detail: &detail,
 		}
+	case errors.Is(err, trip.ErrPositionTripCompleted):
+		return http.StatusConflict, api.Problem{Status: http.StatusConflict, Code: "trip_completed", Title: conflictTitle}
 	case errors.Is(err, trip.ErrTripCompleted):
 		detail := "Trip is already completed"
 		return http.StatusConflict, api.Problem{
 			Status: http.StatusConflict,
 			Code:   "trip_already_completed",
-			Title:  "Conflict",
+			Title:  conflictTitle,
 			Detail: &detail,
 		}
 	case errors.Is(err, trip.ErrDriverBusy):
@@ -41,7 +45,7 @@ func Problem(err error) (int, api.Problem) {
 		return http.StatusConflict, api.Problem{
 			Status: http.StatusConflict,
 			Code:   "driver_busy",
-			Title:  "Conflict",
+			Title:  conflictTitle,
 			Detail: &detail,
 		}
 	default:

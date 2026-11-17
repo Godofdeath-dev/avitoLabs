@@ -9,12 +9,13 @@ import (
 
 	"github.com/Godofdeath-dev/avitoLabs/internal/config"
 	"github.com/Godofdeath-dev/avitoLabs/internal/container"
+	"github.com/Godofdeath-dev/avitoLabs/internal/infra/telemetry"
 )
 
 func main() { os.Exit(run()) }
 
 func run() int {
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	slog.SetDefault(telemetry.NewLogger(os.Getenv("LOG_LEVEL"), "trip-service", os.Stdout))
 	cfg, err := config.Load()
 	if err != nil {
 		slog.Error("failed to load configuration", "error", err)
@@ -31,7 +32,7 @@ func run() int {
 	defer signal.Stop(signals)
 	exitCode := 0
 	select {
-	case err := <-c.Start():
+	case err := <-c.Start(ctx):
 		if err != nil {
 			c.Logger().Error("server failed", "error", err)
 			exitCode = 1
